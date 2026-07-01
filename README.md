@@ -48,7 +48,19 @@ git clone https://github.com/ВАШ_ЛОГИН/polling-service.git
 cd polling-service
 ```
 
-### 2. Запустите окружение и приложение
+### 2. Настройка
+1. Скопируйте файл с примером переменных:
+```bash
+   cp .env.example .env
+```
+2. Отредактируйте `.env` под свои нужды:
+```
+DB_USER=my_user
+DB_PASSWORD=my_secure_password
+DB_NAME=my_database
+```
+
+### 3. Запустите окружение и приложение
 
 ```bash
 # Полный старт (Docker + миграции + приложение)
@@ -60,7 +72,7 @@ make migrate-up     # Применить миграции
 make run            # Запустить сервер
 ```
 
-### 3. Остановка
+### 4. Остановка
 
 ```bash
 make docker-down    # Остановить контейнеры

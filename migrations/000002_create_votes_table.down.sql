@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_votes_unique;
+
+DROP TABLE IF EXISTS votes;

@@ -1,90 +1,243 @@
-.PHONY: help run migrate-up migrate-down docker-up docker-down test build clean
+.PHONY: help run build test clean docker-up docker-down docker-down-v docker-logs \
+        migrate-up migrate-down migrate-force migrate-status migrate-create \
+        reset start lint fmt tidy deps ci dev
 
+# ============================================================================
 # Переменные
+# ============================================================================
+
+
+
+# Загружаем переменные из .env
+include .env
+export $(shell sed 's/=.*//' .env)
+
+# Бинарный файл
 BINARY_NAME=polling-service
-MIGRATE_PATH=file://migrations
-DB_URL=postgres://poll_user:poll_pass@localhost:5432/polling_db?sslmode=disable
-
-help:
-	@echo "Available commands:"
-	@echo "  make run           - Run the application"
-	@echo "  make build         - Build the application"
-	@echo "  make test          - Run tests"
-	@echo "  make migrate-up    - Run database migrations up"
-	@echo "  make migrate-down  - Rollback database migrations"
-	@echo "  make docker-up     - Start PostgreSQL in Docker"
-	@echo "  make docker-down   - Stop PostgreSQL in Docker"
-	@echo "  make clean         - Clean build artifacts"
-
-# Запуск приложения
-run:
-	go run cmd/api/main.go
-
-# Сборка приложения
-build:
-	go build -o bin/$(BINARY_NAME) cmd/api/main.go
-
-# Запуск тестов
-test:
-	go test -v ./...
-
-# Очистка
-clean:
-	rm -rf bin/
-	go clean
-
-# Docker
-docker-up:
-	docker compose up -d
-
-docker-down:
-	docker compose down
-
-docker-down-v:
-	docker compose down -v
-
-docker-logs:
-	docker compose logs -f
+BIN_DIR=bin
 
 # Миграции
+MIGRATE_PATH=file://migrations
+DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=$(DB_SSLMODE)
+
+# Docker команда (новый синтаксис)
+DOCKER_COMPOSE = docker compose
+
+# Go команды
+GOCMD=go
+GOBUILD=$(GOCMD) build
+GORUN=$(GOCMD) run
+GOTEST=$(GOCMD) test
+GOMOD=$(GOCMD) mod
+GOGET=$(GOCMD) get
+
+# ============================================================================
+# Определение Docker команды (поддержка старого и нового синтаксиса)
+# ============================================================================
+
+DOCKER_COMPOSE := $(shell \
+	if docker compose version > /dev/null 2>&1; then \
+		echo "docker compose"; \
+	else \
+		echo "docker-compose"; \
+	fi \
+)
+# ============================================================================
+# Основные команды
+# ============================================================================
+
+help:
+	@echo "📋 Доступные команды:"
+	@echo ""
+	@echo "🚀 Запуск и сборка:"
+	@echo "  make run           - Запустить приложение"
+	@echo "  make build         - Собрать бинарник в $(BIN_DIR)/"
+	@echo "  make dev           - Запустить с горячей перезагрузкой (требуется air)"
+	@echo ""
+	@echo "🐳 Docker:"
+	@echo "  make docker-up     - Поднять все сервисы (PostgreSQL + Redis)"
+	@echo "  make docker-down   - Остановить все сервисы"
+	@echo "  make docker-down-v - Остановить и удалить тома с данными"
+	@echo "  make docker-logs   - Показать логи контейнеров"
+	@echo "  make docker-ps     - Показать статус контейнеров"
+	@echo "  make docker-restart - Перезапустить контейнеры"
+	@echo "  make docker-build  - Пересобрать образы"
+	@echo ""
+	@echo "🗄️ Миграции:"
+	@echo "  make migrate-up    - Применить все миграции"
+	@echo "  make migrate-down  - Откатить последнюю миграцию"
+	@echo "  make migrate-down-all - Откатить все миграции"
+	@echo "  make migrate-force version=N - Форсировать версию N"
+	@echo "  make migrate-status - Показать статус миграций"
+	@echo "  make migrate-create name=NAME - Создать новую миграцию"
+	@echo ""
+	@echo "🧹 Утилиты:"
+	@echo "  make clean         - Очистить собранные файлы"
+	@echo "  make tidy          - Обновить go.mod"
+	@echo "  make fmt           - Отформатировать код"
+	@echo "  make lint          - Запустить линтер"
+	@echo "  make test          - Запустить тесты"
+	@echo "  make deps          - Загрузить зависимости"
+	@echo ""
+	@echo "🔄 Полный цикл:"
+	@echo "  make start         - Запустить всё (Docker + миграции + приложение)"
+	@echo "  make reset         - Полностью пересоздать БД"
+	@echo "  make ci            - Проверки для CI/CD"
+
+# ============================================================================
+# Запуск и сборка
+# ============================================================================
+
+run:
+	$(GORUN) cmd/api/main.go
+
+build:
+	mkdir -p $(BIN_DIR)
+	$(GOBUILD) -o $(BIN_DIR)/$(BINARY_NAME) cmd/api/main.go
+	@echo "✅ Бинарник собран: $(BIN_DIR)/$(BINARY_NAME)"
+
+dev:
+	@echo "🔄 Запуск с горячей перезагрузкой..."
+	@which air > /dev/null || (echo "❌ Установите air: go install github.com/air-verse/air@latest" && exit 1)
+	air
+
+# ============================================================================
+# Docker
+# ============================================================================
+
+docker-up:
+	$(DOCKER_COMPOSE) up -d
+	@echo "✅ Контейнеры запущены"
+
+docker-down:
+	$(DOCKER_COMPOSE) down
+	@echo "✅ Контейнеры остановлены"
+
+docker-down-v:
+	$(DOCKER_COMPOSE) down -v
+	@echo "✅ Контейнеры остановлены и тома удалены"
+
+docker-logs:
+	$(DOCKER_COMPOSE) logs -f
+
+docker-ps:
+	$(DOCKER_COMPOSE) ps
+
+docker-restart: docker-down docker-up
+
+docker-build:
+	$(DOCKER_COMPOSE) build --no-cache
+	@echo "✅ Образы пересобраны"
+
+docker-shell:
+	@echo "🐚 Подключаемся к PostgreSQL..."
+	docker exec -it polling_db psql -U $(DB_USER) -d $(DB_NAME)
+
+redis-shell:
+	@echo "🐚 Подключаемся к Redis..."
+	docker exec -it polling_redis redis-cli
+
+# ============================================================================
+# Миграции
+# ============================================================================
+
 migrate-up:
-	go run cmd/migrate/main.go up
+	@echo "🔄 Применяем миграции..."
+	$(GORUN) cmd/migrate/main.go up
+	@echo "✅ Миграции применены"
 
 migrate-down:
-	go run cmd/migrate/main.go down
+	@echo "🔄 Откатываем миграцию..."
+	$(GORUN) cmd/migrate/main.go down
+	@echo "✅ Миграция откачена"
+
+migrate-down-all:
+	@echo "🔄 Откатываем все миграции..."
+	$(GORUN) cmd/migrate/main.go down -all
+	@echo "✅ Все миграции откачены"
 
 migrate-force:
-	@echo "Usage: make migrate-force version=N"
-	go run cmd/migrate/main.go force $(version)
+	@if [ -z "$(version)" ]; then \
+		echo "❌ Укажите версию: make migrate-force version=N"; \
+		exit 1; \
+	fi
+	@echo "🔄 Форсируем версию $(version)..."
+	$(GORUN) cmd/migrate/main.go force $(version)
+	@echo "✅ Версия $(version) форсирована"
 
 migrate-status:
-	@echo "Current migration status:"
-	docker exec -it polling_db psql -U poll_user -d polling_db -c "SELECT * FROM schema_migrations;"
+	@echo "📊 Статус миграций:"
+	docker exec -it polling_db psql -U $(DB_USER) -d $(DB_NAME) -c "SELECT * FROM schema_migrations;"
 
-# Полный перезапуск (очистка + старт)
-reset: docker-down-v docker-up migrate-up
-	@echo "Database reset completed"
+migrate-create:
+	@if [ -z "$(name)" ]; then \
+		echo "❌ Укажите имя миграции: make migrate-create name=NAME"; \
+		exit 1; \
+	fi
+	@echo "🔄 Создаем миграцию: $(name)"
+	migrate create -ext sql -dir migrations -seq $(name)
+	@echo "✅ Миграция создана"
 
-# Запуск с миграциями
-start: docker-up migrate-up run
+migrate-fix:
+	@echo "🔧 Исправляем dirty состояние..."
+	docker exec -it polling_db psql -U $(DB_USER) -d $(DB_NAME) -c "UPDATE schema_migrations SET dirty = false;"
+	@echo "✅ Dirty флаг сброшен"
 
-# Проверка кода
-lint:
-	golangci-lint run ./...
+# ============================================================================
+# Утилиты
+# ============================================================================
+
+clean:
+	rm -rf $(BIN_DIR)/
+	rm -rf tmp/
+	go clean
+	@echo "✅ Проект очищен"
+
+tidy:
+	$(GOMOD) tidy
+	@echo "✅ go.mod обновлен"
 
 fmt:
 	go fmt ./...
+	@echo "✅ Код отформатирован"
 
-tidy:
-	go mod tidy
+lint:
+	@which golangci-lint > /dev/null || (echo "❌ Установите golangci-lint: https://golangci-lint.run/usage/install/" && exit 1)
+	golangci-lint run ./...
+	@echo "✅ Линтер прошел успешно"
 
-# Проверка зависимостей
+test:
+	$(GOTEST) -v -race -coverprofile=coverage.out ./...
+	@echo "✅ Тесты пройдены"
+
 deps:
-	go mod download
-	go mod verify
+	$(GOMOD) download
+	$(GOMOD) verify
+	@echo "✅ Зависимости загружены"
 
-# Все команды для CI/CD
+coverage:
+	go tool cover -html=coverage.out
+	@echo "📊 Отчет покрытия открыт в браузере"
+
+# ============================================================================
+# Полный цикл
+# ============================================================================
+
+start: docker-up migrate-up run
+
+reset: docker-down-v docker-up migrate-up
+	@echo "✅ Полный сброс выполнен"
+
 ci: tidy fmt lint test build
+	@echo "✅ CI проверки пройдены"
 
-# Показать все доступные команды
-all: help
+# ============================================================================
+# Быстрые команды (алиасы)
+# ============================================================================
+
+up: docker-up
+down: docker-down
+logs: docker-logs
+ps: docker-ps
+status: migrate-status
+migrate: migrate-up

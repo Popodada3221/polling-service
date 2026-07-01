@@ -51,7 +51,7 @@ cd polling-service
 ### 2. Настройка
 1. Скопируйте файл с примером переменных:
 ```bash
-   cp .env.example .env
+cp .env.example .env
 ```
 2. Отредактируйте `.env` под свои нужды:
 ```

@@ -20,6 +20,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -45,10 +46,22 @@ func main() {
 
 	slog.Info("Connected to database")
 
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.RedisAddr(),
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	slog.Info("Connected to Redis")
+
 	pollRepo := repository.NewPollRepository(dbPool)
 	voteRepo := repository.NewVoteRepository(dbPool)
-	pollService := service.NewPollService(pollRepo)
-	voteService := service.NewVoteService(pollRepo, voteRepo)
+	cacheRepo := repository.NewCacheRepository(redisClient, cfg.RedisTTL)
+	pollService := service.NewPollService(pollRepo, cacheRepo)
+	voteService := service.NewVoteService(pollRepo, voteRepo, cacheRepo)
 	pollHandler := handler.NewPollHandler(pollService, voteService)
 
 	r := chi.NewRouter()

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"polling-service/internal/domain"
 	"polling-service/internal/repository"
 )
@@ -10,12 +11,14 @@ import (
 type VoteService struct {
 	voteRepo *repository.VoteRepository
 	pollRepo *repository.PollRepository
+	cache    *repository.CacheRepository
 }
 
-func NewVoteService(pollRepo *repository.PollRepository, voteRepo *repository.VoteRepository) *VoteService {
+func NewVoteService(pollRepo *repository.PollRepository, voteRepo *repository.VoteRepository, cache *repository.CacheRepository) *VoteService {
 	return &VoteService{
 		pollRepo: pollRepo,
 		voteRepo: voteRepo,
+		cache:    cache,
 	}
 
 }
@@ -53,10 +56,20 @@ func (s *VoteService) Vote(ctx context.Context, pollID, optionID, userID string)
 		return nil, err
 	}
 
+	if err := s.cache.DeletePoll(ctx, pollID); err != nil {
+		slog.Warn("Failed to invalidate cache", "poll_id", pollID, "error", err)
+	}
+
 	updatedPoll, err := s.pollRepo.GetPoll(ctx, pollID)
 
 	if err != nil {
 		return nil, err
+	}
+
+	//update cache
+
+	if err := s.cache.SetPoll(ctx, updatedPoll); err != nil {
+		slog.Warn("Failed to update cache", "poll_id", pollID, "error", err)
 	}
 
 	return updatedPoll, nil
